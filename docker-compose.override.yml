@@ -1,0 +1,27 @@
+version: '3.4'
+
+services:
+  securitywebapi:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "8002:80"
+
+  learningmgmtsyswebapi:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - "DatabaseSettings:ConnectionString=mongodb://catalogdb:27017"
+    depends_on:
+      - coursedb
+    ports:
+      - "8001:80"
+
+  apigateway:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "8000:80"
+
+    depends_on:
+        - securitywebapi
+        - learningmgmtsyswebapi

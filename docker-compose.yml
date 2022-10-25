@@ -1,0 +1,64 @@
+
+version: '3.4'
+
+networks:
+  backend:
+  
+services:
+   #userdb:
+   #  container_name: user-db
+   #  image: mcr.microsoft.com/mssql/server:2019-latest
+   #  environment:
+   #     - ACCEPT_EULA=Y
+   #     - SA_PASSWORD="pass@word1"
+   #  ports:
+   #     - 1434:1433
+
+   coursedb:
+     container_name: course-db
+     image: mongo
+     ports:
+          - 27017:27017
+     command: ["mongod", "--port", "27017"]
+     networks:
+          - backend
+     depends_on:
+          - userdb
+
+   learningmgmtsyswebapi:
+    container_name: learningmgmtsys-api
+    image: ${DOCKER_REGISTRY-}learningmgmtsyswebapi
+    build:
+      context: .
+      dockerfile: LearningMgmtSys/Dockerfile
+    networks:
+      - backend
+    environment:
+      - DB_HOST=coursedb
+      #- DB_NAME=sa
+      #- DB_ROOT_PASSWORD=pass@word1
+
+
+   securitywebapi:
+    container_name: security-api
+    image: ${DOCKER_REGISTRY-}securitywebapi
+    build:
+      context: .
+      dockerfile: SecurityService/Dockerfile
+    networks:
+      - backend
+    #environment:
+    #  - DB_HOST=userdb
+    #  - DB_NAME=sa
+    #  - DB_ROOT_PASSWORD=pass@word1
+
+   apigateway:
+    container_name: api-gateway
+    image: ${DOCKER_REGISTRY-}apigateway
+    build:
+      context: .
+      dockerfile: APIGateway/Dockerfile
+    ports:
+         - 8000:80
+    networks:
+          - backend
