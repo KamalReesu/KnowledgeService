@@ -13,7 +13,7 @@ namespace LearningMgmtSys.Model
     {
         [BsonId]
         [BsonRepresentation(BsonType.ObjectId)]
-        public string? Id { get; set; }
+        public string Id { get; set; }
 
         [JsonPropertyName("Name")]
         [Required]
@@ -21,6 +21,7 @@ namespace LearningMgmtSys.Model
         public string CourseName { get; set; } = null!;
 
         [Required]
+        [BsonRepresentation(BsonType.Decimal128)]
         public decimal Duration { get; set; }
 
         [Required]

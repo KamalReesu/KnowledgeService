@@ -13,84 +13,76 @@ namespace LearningMgmtSys.Controllers
     [Route("api/v{v:apiVersion}/lms/[controller]")]
     public class CourseController : Controller
     {
-        private readonly CourseService _courseService;
-
-        public CourseController(CourseService courseService) =>
+        private readonly ICourseService _courseService;
+        private readonly IRabitMQProducer _rabitMQProducer;
+        public CourseController(ICourseService courseService,IRabitMQProducer rabitMQProducer)
+        {
+            _rabitMQProducer = rabitMQProducer;
             _courseService = courseService;
+        }
 
-       //[Authorize]
+        [Authorize(Roles = "Administrator,User")]
         [HttpGet("getall")]
-        public async Task<List<Courses>> Get() =>
+        public async Task<List<Courses>> GetAllCourses() =>
             await _courseService.GetAsync();
 
-       // [Authorize]
+        [Authorize(Roles = "Administrator,User")]
         [HttpGet("info/{technology}")]
-        public async Task<ActionResult<Courses>> Get(string technology)
+        public async Task<ActionResult<List<Courses>>> GetCoursebyTechnology(string technology)
         {
-            var course = await _courseService.GetAsync(technology);
+            var courses = await _courseService.GetCoursebyTechnology(technology);
 
-            if (course is null)
+            if (courses is null)
             {
-                return NotFound();
+                return NotFound(new { message = "Course Not Found" });
             }
 
-            return course;
+            return courses;
         }
-      //  [Authorize]
+        [Authorize(Roles = "Administrator,User")]
         [HttpGet("get/{technology}/{durationFromRange}/{durationToRange}")]
-        public async Task<ActionResult<Courses>> GetCourse(string technology, decimal durationFromRange, decimal durationToRange)
+        public async Task<ActionResult<List<Courses>>> GetCoursebyTechnologyandduration(string technology, decimal durationFromRange, decimal durationToRange)
         {
-            var course = await _courseService.GetCourseAsync(technology, durationFromRange, durationToRange);
+            var courses = await _courseService.GetCourseAsync(technology, durationFromRange, durationToRange);
 
-            if (course is null)
+            if (courses is null)
             {
-                return NotFound();
+                return NotFound(new {message = "Course Not Found" });
             }
 
-            return course;
+            return courses;
         }
-       // [Authorize]
+        [Authorize(Roles = "Administrator")]
         [HttpPost("add")]
-        public async Task<IActionResult> Post([FromBody] Courses course)
+        public async Task<IActionResult> AddCourse([FromBody] Courses course)
         {
-            var courseobj = await _courseService.GetAsync(course.Technology);
+            var courseobj = await _courseService.GetCoursebyId(course.Id);
             if(courseobj is null)
             {
                 await _courseService.CreateAsync(course);
+                //send the inserted product data to the queue and consumer will listening this data from queue
+                // _rabitMQProducer.SendProductMessage(courseobj);
+                return Ok(new { course = course.CourseName, status = "Course created successfully" });
             }
-            return CreatedAtAction(nameof(Get), new { id = course.Id }, course);
+            
+            
+            return NotFound(new { message = "There was some error while adding course" });
         }
 
-        //[HttpPut("{id:length(24)}")]
-        //public async Task<IActionResult> Update(string id, Courses updatedCourse)
-        //{
-        //    var book = await _courseService.GetAsync(id);
-
-        //    if (book is null)
-        //    {
-        //        return NotFound();
-        //    }
-
-        //    updatedCourse.Id = book.Id;
-
-        //    await _courseService.UpdateAsync(id, updatedCourse);
-
-        //    return NoContent();
-        //}
-        //[Authorize]
+        [Authorize(Roles ="Administrator")]
         [HttpDelete("delete/{coursename}")]
-        public async Task<IActionResult> Delete(string coursename)
+        public async Task<IActionResult> DeleteCourse(string coursename)
         {
             var book = await _courseService.GetAsync(coursename);
 
             if (book is null)
             {
-                return NotFound();
+                return NotFound(new { message = "Course Not Found" });
             }
 
             await _courseService.RemoveAsync(coursename);
 
-            return NoContent();
+            return Ok(new { courseName = coursename, status = "Course with "+coursename+" Deleted successfully" });
         }
     }
 }

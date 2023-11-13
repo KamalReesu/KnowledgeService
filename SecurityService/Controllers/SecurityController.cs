@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using SecurityService.Models;
 using System;
@@ -17,16 +18,22 @@ namespace SecurityService.Controllers
     [ApiController]
 
     [ApiVersion("1.0")]
-    [Route("api/v{v:apiVersion}/lms")]
+    [Route("api/v{v:apiVersion}/lms/user")]
     public class SecurityController : Controller
     {
         private IConfiguration _config;
 
-        private LmsDBContext dBContext = new LmsDBContext();
+        private readonly UserdbContext dBContext;
 
-        public SecurityController(IConfiguration config)
+        private readonly IRabbitMQConsumer _consumer;
+
+        private readonly ILogger<SecurityController> _logger;
+        public SecurityController(IConfiguration config,UserdbContext db, IRabbitMQConsumer consumer, ILogger<SecurityController> logger)
         {
+            dBContext = db;
             _config = config;
+            _consumer = consumer;
+            _logger = logger;
         }
 
             [Route("login")]
@@ -36,12 +43,21 @@ namespace SecurityService.Controllers
             {
                 IActionResult response = Unauthorized();
                 var user = AuthenticateUser(login);
+            try
+            {
 
                 if (user != null)
                 {
                     var tokenString = GenerateJSONWebToken(user);
-                    response = Ok(new { token = tokenString, user.UserName, status = "Successful!" });
+                    response = Ok(new { token = tokenString, user.UserName, status = "Login Successful!" });
+                    _logger.LogInformation("A user with " + login.UserName + " has logged in at {date}", DateTime.UtcNow);
                 }
+
+            }
+            catch(Exception e)
+            {
+                response = Unauthorized();
+            }
 
                 return response;
             }
@@ -51,14 +67,15 @@ namespace SecurityService.Controllers
 
                 var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
                 var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
-                var claims = new[] {
+            var claims = new[] {
+                    new Claim("Id", Guid.NewGuid().ToString()),
                 new Claim(JwtRegisteredClaimNames.Sub, userInfo.UserName),
                 new Claim(JwtRegisteredClaimNames.Email, userInfo.EmailId),
-                //new Claim("DateOfJoing", userInfo.DateOfJoing.ToString("yyyy-MM-dd")),
+                new Claim(ClaimTypes.Role,(userInfo.IsAdmin)? "Administrator":"User"),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
-                var token = new JwtSecurityToken(_config["Jwt:Issuer"], _config["Jwt:Issuer"], claims,
-                  expires: DateTime.Now.AddMinutes(60),
+                var token = new JwtSecurityToken(_config["Jwt:Issuer"], _config["Jwt:Audience"], claims,
+                  expires: DateTime.Now.AddMinutes(15),
                   signingCredentials: credentials);
 
                 return new JwtSecurityTokenHandler().WriteToken(token);
@@ -69,17 +86,14 @@ namespace SecurityService.Controllers
                 ViewProfile user = null;
                 try
                 {
-                    using (dBContext = new LmsDBContext())
-                    {
                     var userOut = (from u in dBContext.Users
-                                   where (u.LmsEmailId == login.EmailId || u.LmsUserName == login.UserName) & u.LmsUserPassword == login.UserPassword
+                                   where (u.LmsEmailId == login.EmailId && u.LmsUserName == login.UserName) & u.LmsUserPassword == login.UserPassword
                                    select new
                                    {
                                        EmailAddress = u.LmsEmailId,
                                        userName = u.LmsUserName,
                                        mobileNo = u.LmsMobileNumber,
                                        isAdmin = u.IsAdmin
-                                       //LmsEmailId.Remove(u.LmsEmailId.IndexOf("@")),
                                    }).FirstOrDefault();
                     if(userOut == null)
                     {
@@ -95,10 +109,7 @@ namespace SecurityService.Controllers
                             IsAdmin = userOut.isAdmin
                         };
                     }
-                    
-
-                }
-                  
+                          
                 }
                 catch (Exception e)
                 {
@@ -119,8 +130,6 @@ namespace SecurityService.Controllers
                 IActionResult response = Unauthorized();
                 try
                 {
-                using (dBContext = new LmsDBContext())
-                {
                     var checkuser = dBContext.Users.Any(u => u.LmsEmailId == newuser.LmsEmailId && newuser.LmsUserName == u.LmsUserName);
                     if (!checkuser)
                     {
@@ -136,15 +145,15 @@ namespace SecurityService.Controllers
                         };
                         dBContext.Users.Add(n);
                         dBContext.SaveChanges();
-                        response = Ok(new { username = newuser.LmsUserName, status = "Successfully Registered!" });
+                        response = Ok(new { username = newuser.LmsUserName, status = "Successfully Registered! Please Continue to login!!" });
+                        _logger.LogInformation("A user with " + newuser.LmsUserName + " has successfully registered in at {date}", DateTime.UtcNow);
                     }
                     else
                     {
-                        response = NotFound(new { status = "User Already Exists!! Please try again later" });
+                        response = NotFound(new { status = "User Already Exists!! Please try again later!!" });
+                        _logger.LogError("A user with " + newuser.LmsUserName + " tried to login at {date}", DateTime.UtcNow);
                     }
-                }
-
-
+    
             }
                 catch (Exception e)
                 {
@@ -156,20 +165,33 @@ namespace SecurityService.Controllers
 
 
             [Route("Viewprofile")]
-            [AllowAnonymous]
+            [Authorize]
             [HttpGet]
-            public IActionResult ViewProfile([FromQuery] Login login)
+            public IActionResult ViewProfile([FromBody] Login login)
             {
                 IActionResult response = Unauthorized();
                 var user = AuthenticateUser(login);
-
-                if (user != null)
+                try
                 {
-                    var tokenString = GenerateJSONWebToken(user);
-                    response = Ok(new { token = tokenString, user, status = "Successful!" });
+                    if (user != null)
+                    {
+                        //Rabbit MQ Messsage Consuming..
+                        //_consumer.ConsumeMessage();
+                        response = Ok(new { name = user.UserName, isAdmin = user.IsAdmin });
+                    }
+                    else
+                    {
+                        response = NotFound(new { status = "User not found!!! Please try again with different credentials!!" });
+                    }
                 }
+                    catch (Exception e)
+                    {
+                        response = Unauthorized();
 
-                return response;
+                    }
+
+
+                    return response;
             }
         }
  }

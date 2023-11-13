@@ -3,16 +3,53 @@ version: '3.4'
 
 networks:
   backend:
-  
+  elastic:
+    driver: bridge
+
+volumes:
+  elasticsearch-data:
+ 
 services:
-   #userdb:
-   #  container_name: user-db
-   #  image: mcr.microsoft.com/mssql/server:2019-latest
-   #  environment:
-   #     - ACCEPT_EULA=Y
-   #     - SA_PASSWORD="pass@word1"
-   #  ports:
-   #     - 1434:1433
+   elasticsearch:
+    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.9.2
+    ports:
+     - 9200:9200
+    volumes:
+     - elasticsearch-data:/usr/share/elasticsearch/data
+    environment:
+     - xpack.monitoring.enabled=true
+     - xpack.watcher.enabled=false
+     - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+     - discovery.type=single-node
+    networks:
+     - elastic
+
+   kibana:
+    container_name: kibana
+    image: docker.elastic.co/kibana/kibana:7.9.2
+    ports:
+    - 5601:5601
+    depends_on:
+    - elasticsearch
+    environment:
+    - ELASTICSEARCH_URL=http://localhost:9200
+    networks:
+    - elastic
+  
+
+   rabbitmq:
+     image: rabbitmq:3-management
+   
+   userdb:
+     container_name: user-db
+     image: mcr.microsoft.com/mssql/server:2019-latest
+     environment:
+        - ACCEPT_EULA=Y
+        - SA_PASSWORD=pass@word1
+     ports:
+       - "1433:1433"
+
 
    coursedb:
      container_name: course-db
@@ -22,11 +59,9 @@ services:
      command: ["mongod", "--port", "27017"]
      networks:
           - backend
-     depends_on:
-          - userdb
 
    learningmgmtsyswebapi:
-    container_name: learningmgmtsys-api
+    container_name: learningmgmtsyswebapi
     image: ${DOCKER_REGISTRY-}learningmgmtsyswebapi
     build:
       context: .
@@ -40,7 +75,7 @@ services:
 
 
    securitywebapi:
-    container_name: security-api
+    container_name: securitywebapi
     image: ${DOCKER_REGISTRY-}securitywebapi
     build:
       context: .
@@ -53,7 +88,7 @@ services:
     #  - DB_ROOT_PASSWORD=pass@word1
 
    apigateway:
-    container_name: api-gateway
+    container_name: apigateway
     image: ${DOCKER_REGISTRY-}apigateway
     build:
       context: .
